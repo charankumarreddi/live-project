@@ -1,0 +1,136 @@
+apiVersion: media.example.com/v1
+kind: VLCPlayer
+metadata:
+  name: vlc-player-linux
+  namespace: default
+  labels:
+    environment: production
+    platform: linux
+spec:
+  replicas: 3
+  version: "3.0.18"
+  platform: linux
+  image:
+    repository: vlc-player
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  resources:
+    limits:
+      cpu: "2000m"
+      memory: "2Gi"
+    requests:
+      cpu: "500m"
+      memory: "512Mi"
+  storage:
+    enabled: true
+    size: "20Gi"
+    storageClass: "fast-ssd"
+    accessMode: "ReadWriteOnce"
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilization: 70
+    targetMemoryUtilization: 80
+  networking:
+    serviceType: LoadBalancer
+    port: 8080
+  security:
+    runAsNonRoot: true
+    runAsUser: 1000
+    fsGroup: 1000
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+
+---
+apiVersion: media.example.com/v1
+kind: VLCPlayer
+metadata:
+  name: vlc-player-windows
+  namespace: default
+  labels:
+    environment: production
+    platform: windows
+spec:
+  replicas: 2
+  version: "3.0.18"
+  platform: windows
+  image:
+    repository: vlc-player-windows
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  resources:
+    limits:
+      cpu: "2000m"
+      memory: "4Gi"
+    requests:
+      cpu: "1000m"
+      memory: "1Gi"
+  storage:
+    enabled: true
+    size: "30Gi"
+    storageClass: "default"
+    accessMode: "ReadWriteOnce"
+  autoscaling:
+    enabled: false  # VPA not supported on Windows
+    minReplicas: 2
+    maxReplicas: 5
+    targetCPUUtilization: 60
+    targetMemoryUtilization: 70
+  networking:
+    serviceType: LoadBalancer
+    port: 8080
+  security:
+    runAsNonRoot: false  # Windows containers may need different security context
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 0  # Conservative approach for Windows
+
+---
+apiVersion: media.example.com/v1
+kind: VLCPlaylist
+metadata:
+  name: demo-playlist
+  namespace: default
+  labels:
+    category: demo
+spec:
+  name: "Demo Media Playlist"
+  description: "Sample playlist for demonstration"
+  items:
+  - title: "Big Buck Bunny"
+    url: "http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"
+    duration: "00:09:56"
+    metadata:
+      genre: "Animation"
+      year: "2008"
+  - title: "Elephants Dream"
+    url: "http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4"
+    duration: "00:10:53"
+    metadata:
+      genre: "Animation"
+      year: "2006"
+  - title: "For Bigger Blazes"
+    url: "http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4"
+    duration: "00:00:15"
+    metadata:
+      genre: "Commercial"
+      year: "2017"
+  - title: "Sintel"
+    url: "http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4"
+    duration: "00:14:48"
+    metadata:
+      genre: "Animation"
+      year: "2010"
+  autoPlay: true
+  loop: true
+  shuffle: false
+  schedule:
+    enabled: false
+    cron: "0 9 * * 1-5"  # Every weekday at 9 AM
+    timezone: "UTC"

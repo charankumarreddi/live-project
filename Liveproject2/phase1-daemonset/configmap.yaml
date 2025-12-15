@@ -1,0 +1,70 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vlc-player-config
+  namespace: default
+  labels:
+    app: vlc-player
+    phase: daemonset
+data:
+  # VLC Player Configuration
+  vlc.conf: |
+    [main]
+    interface=http
+    http-host=0.0.0.0
+    http-port=8080
+    playlist-autostart=1
+    loop=1
+    
+  # Playlist Configuration
+  playlist.m3u: |
+    #EXTM3U
+    #EXTINF:-1,Sample Stream 1
+    http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4
+    #EXTINF:-1,Sample Stream 2
+    http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4
+    #EXTINF:-1,Sample Stream 3
+    http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4
+    
+  # Environment Configuration
+  env.conf: |
+    VLC_PORT=8080
+    PLAYLIST_PATH=/app/playlists/playlist.m3u
+    LOG_LEVEL=1
+    AUDIO_OUTPUT=pulse
+    
+  # Logging Configuration
+  logging.conf: |
+    [loggers]
+    keys=root,vlc
+    
+    [handlers]
+    keys=fileHandler,consoleHandler
+    
+    [formatters]
+    keys=detailed
+    
+    [logger_root]
+    level=INFO
+    handlers=consoleHandler
+    
+    [logger_vlc]
+    level=DEBUG
+    handlers=fileHandler,consoleHandler
+    qualname=vlc
+    propagate=0
+    
+    [handler_fileHandler]
+    class=FileHandler
+    level=DEBUG
+    formatter=detailed
+    args=('/app/logs/vlc.log',)
+    
+    [handler_consoleHandler]
+    class=StreamHandler
+    level=INFO
+    formatter=detailed
+    args=(sys.stdout,)
+    
+    [formatter_detailed]
+    format=%(asctime)s %(name)-12s %(levelname)-8s %(message)s

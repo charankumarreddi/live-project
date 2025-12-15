@@ -1,0 +1,275 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: vlc-player-sts
+  namespace: default
+  labels:
+    app: vlc-player
+    phase: statefulset
+    version: v2.0.0
+spec:
+  serviceName: vlc-player-headless-sts
+  replicas: 3
+  selector:
+    matchLabels:
+      app: vlc-player
+      phase: statefulset
+  template:
+    metadata:
+      labels:
+        app: vlc-player
+        phase: statefulset
+        version: v2.0.0
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+    spec:
+      # Node Selection
+      nodeSelector:
+        kubernetes.io/os: linux
+        
+      # Pod Anti-Affinity for spreading across nodes
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - vlc-player
+              topologyKey: kubernetes.io/hostname
+              
+      # Security Context
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        
+      # Init Container for media download
+      initContainers:
+      - name: media-downloader
+        image: curlimages/curl:latest
+        command:
+        - sh
+        - -c
+        - |
+          echo "Downloading sample media files..."
+          mkdir -p /media-init
+          cd /media-init
+          
+          # Download sample videos if they don't exist
+          if [ ! -f BigBuckBunny.mp4 ]; then
+            curl -L -o BigBuckBunny.mp4 "http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4" || echo "Failed to download BigBuckBunny.mp4"
+          fi
+          
+          if [ ! -f ElephantsDream.mp4 ]; then
+            curl -L -o ElephantsDream.mp4 "http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4" || echo "Failed to download ElephantsDream.mp4"
+          fi
+          
+          echo "Media download completed"
+          ls -la /media-init/
+        volumeMounts:
+        - name: media-storage
+          mountPath: /media-init
+        resources:
+          limits:
+            cpu: 100m
+            memory: 128Mi
+          requests:
+            cpu: 50m
+            memory: 64Mi
+            
+      containers:
+      - name: vlc-player
+        image: vlc-player:latest
+        imagePullPolicy: IfNotPresent
+        
+        # Container Ports
+        ports:
+        - name: http
+          containerPort: 8080
+          protocol: TCP
+        - name: metrics
+          containerPort: 9090
+          protocol: TCP
+          
+        # Environment Variables
+        env:
+        - name: VLC_PORT
+          value: "8080"
+        - name: VLC_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: vlc-player-secret
+              key: http-password
+        - name: STATEFUL_SET_NAME
+          value: "vlc-player-sts"
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+              
+        # Resource Limits and Requests
+        resources:
+          limits:
+            cpu: "2000m"
+            memory: "2Gi"
+            ephemeral-storage: "4Gi"
+          requests:
+            cpu: "500m"
+            memory: "512Mi"
+            ephemeral-storage: "2Gi"
+            
+        # Volume Mounts
+        volumeMounts:
+        - name: config-volume
+          mountPath: /app/config
+          readOnly: true
+        - name: media-storage
+          mountPath: /app/media
+        - name: logs-storage
+          mountPath: /app/logs
+        - name: cache-storage
+          mountPath: /app/cache
+          
+        # Liveness Probe
+        livenessProbe:
+          httpGet:
+            path: /requests/status.xml
+            port: 8080
+            scheme: HTTP
+            httpHeaders:
+            - name: Authorization
+              value: Basic OnZsY3Bhc3N3b3JkMTIz
+          initialDelaySeconds: 90
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+          successThreshold: 1
+          
+        # Readiness Probe
+        readinessProbe:
+          httpGet:
+            path: /requests/status.xml
+            port: 8080
+            scheme: HTTP
+            httpHeaders:
+            - name: Authorization
+              value: Basic OnZsY3Bhc3N3b3JkMTIz
+          initialDelaySeconds: 45
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+          successThreshold: 1
+          
+        # Startup Probe
+        startupProbe:
+          httpGet:
+            path: /requests/status.xml
+            port: 8080
+            scheme: HTTP
+            httpHeaders:
+            - name: Authorization
+              value: Basic OnZsY3Bhc3N3b3JkMTIz
+          initialDelaySeconds: 20
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 15
+          successThreshold: 1
+          
+        # Lifecycle hooks
+        lifecycle:
+          preStop:
+            exec:
+              command:
+              - sh
+              - -c
+              - |
+                echo "Gracefully shutting down VLC Player..."
+                curl -X POST "http://localhost:8080/requests/status.xml?command=pl_stop" \
+                     -H "Authorization: Basic OnZsY3Bhc3N3b3JkMTIz" || true
+                sleep 10
+                
+        # Security Context
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: false
+          runAsNonRoot: true
+          runAsUser: 1000
+          capabilities:
+            drop:
+            - ALL
+            add:
+            - NET_BIND_SERVICE
+            
+      # Volumes
+      volumes:
+      - name: config-volume
+        configMap:
+          name: vlc-player-sts-config
+          
+      # DNS Policy
+      dnsPolicy: ClusterFirst
+      
+      # Restart Policy
+      restartPolicy: Always
+      
+      # Termination Grace Period
+      terminationGracePeriodSeconds: 60
+      
+  # Volume Claim Templates
+  volumeClaimTemplates:
+  - metadata:
+      name: media-storage
+      labels:
+        app: vlc-player
+        phase: statefulset
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      storageClassName: "fast-ssd"  # Use appropriate storage class
+      resources:
+        requests:
+          storage: 10Gi
+          
+  - metadata:
+      name: logs-storage
+      labels:
+        app: vlc-player
+        phase: statefulset
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      storageClassName: "standard"
+      resources:
+        requests:
+          storage: 2Gi
+          
+  - metadata:
+      name: cache-storage
+      labels:
+        app: vlc-player
+        phase: statefulset
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      storageClassName: "fast-ssd"
+      resources:
+        requests:
+          storage: 5Gi
+          
+  # Update Strategy
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      partition: 0
